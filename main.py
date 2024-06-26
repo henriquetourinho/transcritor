@@ -1,52 +1,61 @@
 import os
 from moviepy.editor import VideoFileClip
-from pydub import AudioSegment
-from vosk import Model, KaldiRecognizer
-import wave
-import json
+import speech_recognition as sr
 
-def extract_audio(video_path):
-    video_clip = VideoFileClip(video_path)
-    audio_path = video_path.replace('.mp4', '.wav')
-    video_clip.audio.write_audiofile(audio_path, codec='pcm_s16le')
+def baixar_arquivo(url, nome_arquivo):
+    # Verifica se o URL é uma URL válida ou um caminho de arquivo local
+    if url.startswith('http://') or url.startswith('https://'):
+        # Se for uma URL, baixa o arquivo usando requests
+        import requests
+        r = requests.get(url, stream=True)
+        with open(nome_arquivo, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=1024):
+                if chunk:
+                    f.write(chunk)
+    else:
+        # Se for um caminho de arquivo local, copia o arquivo
+        import shutil
+        shutil.copy(url, nome_arquivo)
+
+def extrair_audio(video_path):
+    # Extrai o áudio de um vídeo para um arquivo WAV
+    video = VideoFileClip(video_path)
+    audio_path = os.path.splitext(video_path)[0] + ".wav"
+    audio = video.audio
+    audio.write_audiofile(audio_path, codec='pcm_s16le')
     return audio_path
 
-def transcribe_audio(audio_path, model_path):
-    model = Model(model_path)
-    recognizer = KaldiRecognizer(model, 16000)
+def converter_audio_para_texto(audio_path):
+    # Converte áudio em texto usando reconhecimento de fala
+    recognizer = sr.Recognizer()
+    with sr.AudioFile(audio_path) as source:
+        audio = recognizer.record(source)
+    try:
+        texto = recognizer.recognize_google(audio, language='pt-BR')
+        return texto
+    except sr.UnknownValueError:
+        print("Não foi possível entender o áudio")
+    except sr.RequestError as e:
+        print(f"Erro ao fazer a requisição para o serviço de reconhecimento de fala: {e}")
 
-    wf = wave.open(audio_path, "rb")
-    transcription = ""
+# Entrada do usuário para o URL do vídeo ou áudio
+url = input("Digite o URL do vídeo ou áudio ou o caminho do arquivo local: ")
 
-    while True:
-        data = wf.readframes(4000)
-        if len(data) == 0:
-            break
-        if recognizer.AcceptWaveform(data):
-            result = recognizer.Result()
-            text = json.loads(result).get("text", "")
-            transcription += text + " "
+# Nome do arquivo temporário
+nome_arquivo = "temp_video.mp4"
 
-    final_result = recognizer.FinalResult()
-    text = json.loads(final_result).get("text", "")
-    transcription += text
+# Baixar ou copiar o arquivo
+baixar_arquivo(url, nome_arquivo)
 
-    wf.close()
-    return transcription
+# Extrair o áudio do vídeo
+audio_path = extrair_audio(nome_arquivo)
 
-if __name__ == "__main__":
-    video_path = input("Por favor, insira o caminho do arquivo de vídeo local: ")
-    model_path = input("Por favor, insira o caminho do diretório do modelo Vosk: ")
+# Converter áudio em texto
+texto_convertido = converter_audio_para_texto(audio_path)
+if texto_convertido:
+    print("Texto reconhecido:")
+    print(texto_convertido)
 
-    if os.path.isfile(video_path) and video_path.endswith('.mp4'):
-        audio_path = extract_audio(video_path)
-        transcription = transcribe_audio(audio_path, model_path)
-        
-        print("Transcrição do áudio:\n")
-        print(transcription)
-        
-        # Cleanup
-        os.remove(audio_path)
-    else:
-        print("O caminho fornecido não é um arquivo de vídeo MP4 válido.")
+# Remover arquivo temporário após o uso
+os.remove(nome_arquivo)
 
